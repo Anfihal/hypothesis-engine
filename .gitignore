@@ -1,0 +1,185 @@
+# ===================================
+# Python
+# ===================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+*.pyi
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+develop-eggs/
+downloads/
+eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+
+# ===================================
+# IDE / Редакторы
+# ===================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.iml
+.project
+.classpath
+.settings/
+
+# ===================================
+# Конфигурация окружения (секреты)
+# ===================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.crt
+*.p12
+
+# ===================================
+# Данные и файлы проекта
+# ===================================
+data/
+datasets/
+*.csv
+*.xlsx
+*.xls
+*.db
+*.sqlite
+*.sqlite3
+*.pdf
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.mdb
+*.accdb
+*.parquet
+*.feather
+
+# ===================================
+# Логи и отчёты
+# ===================================
+logs/
+*.log
+output/
+*.out
+*.tmp
+*.temp
+hypotheses_output.json
+*.html
+*.xml
+!requirements.xml
+
+# ===================================
+# Модели машинного обучения
+# ===================================
+models/
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.pb
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+*.tflite
+*.keras
+
+# ===================================
+# Ollama (локальные LLM)
+# ===================================
+ollama/
+~/.ollama/
+ollama_models/
+*.gguf
+*.bin
+*.safetensors
+
+# ===================================
+# Jupyter Notebook
+# ===================================
+.ipynb_checkpoints/
+*.ipynb
+!notebooks/*.ipynb
+
+# ===================================
+# Системные файлы Windows/macOS/Linux
+# ===================================
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.tmp
+*.bak
+*.old
+*.orig
+*.rej
+core
+*.swp
+.*.swp
+.vagrant/
+
+# ===================================
+# Докер
+# ===================================
+.dockerignore
+docker-compose.override.yml
+*.pid
+*.sock
+
+# ===================================
+# Прочее
+# ===================================
+*.pyproj
+*.user
+*.suo
+*.cache
+*.njsproj
+*.psess
+*.opendb
+*.sln
+*.csproj
+*.vbproj
+*.fsproj
+*.vcxproj
+*.db-shm
+*.db-wal
+*.lock
+package-lock.json
+yarn.lock
+node_modules/
+
