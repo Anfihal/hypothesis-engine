@@ -385,114 +385,171 @@ st.markdown("---")
 
 # --- Боковая панель ---
 with st.sidebar:
-    new_lang = st.selectbox(
-        t['lang'],
-        options=["ru", "en", "zh"],
-        index=["ru", "en", "zh"].index(lang),
-        key="lang_selector"
-    )
-    if new_lang != lang:
-        st.session_state.lang = new_lang
-        st.rerun()
-
-    st.header(t['params'])
-    st.session_state.kpi = st.text_area(t['kpi'], value=st.session_state.kpi, key="kpi_input")
-    st.session_state.constraints = st.text_area(t['constraints'], value=st.session_state.constraints, key="constraints_input")
-
-    st.subheader(t['model'])
-    provider = st.selectbox(
-        t['provider'],
-        options=["ollama", "g4f", "yandex"],
-        index=["ollama", "g4f", "yandex"].index(st.session_state.provider),
-        key="provider_selector"
-    )
-    st.session_state.provider = provider
-
-    if provider == "ollama":
-        st.session_state.model_name = st.selectbox(
-            t['local_model'],
-            ["llama3.1:8b", "mistral:7b", "llama3.2:3b"],
-            index=0,
-            key="ollama_model"
-        )
-    elif provider == "g4f":
-        st.session_state.model_name = st.selectbox(
-            "G4F модель",
-            ["gpt-4o-mini", "gpt-4o", "claude-3-haiku", "gemini-1.5-flash"],
-            index=0,
-            key="g4f_model"
-        )
-    else:
-        st.session_state.model_name = "yandexgpt"
-
-    st.session_state.enable_search = st.checkbox(
-        t['enable_search'],
-        value=st.session_state.enable_search,
-        key="enable_search_check"
-    )
-
-    # --- Метаданные ---
-    st.subheader("📌 Метаданные")
-    st.session_state.authors = st.text_input("Авторы (через запятую)", value=st.session_state.authors, key="authors_input")
-    st.session_state.publication_date = st.date_input("Дата публикации", value=st.session_state.publication_date, key="pub_date_input")
-    st.session_state.source = st.text_input("Источник (журнал/конференция)", value=st.session_state.source, key="source_input")
-
-    # --- Настройка весов для ранжирования ---
-    st.subheader("⚙️ Настройка ранжирования")
-    weight_novelty = st.slider(
-        "Вес новизны",
-        min_value=0.0, max_value=1.0, value=st.session_state.weights.get('novelty', 0.3), step=0.05,
-        key="weight_novelty"
-    )
-    weight_impact = st.slider(
-        "Вес потенциального эффекта",
-        min_value=0.0, max_value=1.0, value=st.session_state.weights.get('impact', 0.4), step=0.05,
-        key="weight_impact"
-    )
-    weight_risk = st.slider(
-        "Вес риска (чем выше, тем больше штраф за риск)",
-        min_value=0.0, max_value=1.0, value=st.session_state.weights.get('risk', 0.3), step=0.05,
-        key="weight_risk"
-    )
-    # Нормализация
-    total_w = weight_novelty + weight_impact + weight_risk
-    if total_w > 0:
-        st.session_state.weights = {
-            'novelty': weight_novelty / total_w,
-            'impact': weight_impact / total_w,
-            'risk': weight_risk / total_w
-        }
-    else:
-        st.session_state.weights = {'novelty': 0.3, 'impact': 0.4, 'risk': 0.3}
-
-    # --- Применить фидбэк ---
-    if st.button("📊 Применить фидбэк для корректировки весов"):
-        feedback = st.session_state.get('feedback', {})
-        if feedback:
-            likes = sum(1 for v in feedback.values() if v == "like")
-            dislikes = sum(1 for v in feedback.values() if v == "dislike")
-            total = likes + dislikes
-            if total > 0:
-                ratio = likes / total
-                current_impact = st.session_state.weights.get('impact', 0.4)
-                new_impact = current_impact + (ratio - 0.5) * 0.2
-                new_impact = max(0.1, min(0.8, new_impact))
-                novelty = st.session_state.weights.get('novelty', 0.3)
-                risk = st.session_state.weights.get('risk', 0.3)
-                total_w = novelty + new_impact + risk
-                st.session_state.weights = {
-                    'novelty': novelty / total_w,
-                    'impact': new_impact / total_w,
-                    'risk': risk / total_w
-                }
-                st.success("Весы обновлены на основе фидбэка!")
-            else:
-                st.warning("Нет достаточно фидбэка.")
-        else:
-            st.warning("Нет сохранённого фидбэка.")
-
-    st.caption("По умолчанию локальная модель. Для g4f нужен интернет, для yandex – ключи в .env. Поиск через DuckDuckGo (без ключей).")
-
+	new_lang = st.selectbox(
+		t['lang'],
+		options=["ru", "en", "zh"],
+		index=["ru", "en", "zh"].index(lang),
+		key="lang_selector"
+	)
+	if new_lang != lang:
+		st.session_state.lang = new_lang
+		st.rerun()
+	
+	st.header(t['params'])
+	st.session_state.kpi = st.text_area(t['kpi'], value=st.session_state.kpi, key="kpi_input")
+	st.session_state.constraints = st.text_area(t['constraints'], value=st.session_state.constraints,
+	                                            key="constraints_input")
+	
+	st.subheader(t['model'])
+	provider = st.selectbox(
+		t['provider'],
+		options=["ollama", "g4f", "yandex"],
+		index=["ollama", "g4f", "yandex"].index(st.session_state.provider),
+		key="provider_selector"
+	)
+	st.session_state.provider = provider
+	
+	if provider == "ollama":
+		st.session_state.model_name = st.selectbox(
+			t['local_model'],
+			["llama3.1:8b", "mistral:7b", "llama3.2:3b"],
+			index=0,
+			key="ollama_model"
+		)
+	elif provider == "g4f":
+		st.session_state.model_name = st.selectbox(
+			"G4F модель",
+			["gpt-4o-mini", "gpt-4o", "claude-3-haiku", "gemini-1.5-flash"],
+			index=0,
+			key="g4f_model"
+		)
+	else:
+		st.session_state.model_name = "yandexgpt"
+	
+	st.session_state.enable_search = st.checkbox(
+		t['enable_search'],
+		value=st.session_state.enable_search,
+		key="enable_search_check"
+	)
+	
+	# --- База знаний (RAG) ---
+	st.subheader("📚 База знаний")
+	
+	# Инициализация RAG в session_state
+	if "rag" not in st.session_state:
+		from src.rag.retriever import SimpleRAG
+		
+		st.session_state.rag = SimpleRAG()
+	
+	# Загрузка файлов
+	uploaded_files = st.file_uploader(
+		"Загрузите документы (PDF, TXT)",
+		type=["pdf", "txt"],
+		accept_multiple_files=True,
+		key="rag_file_uploader"
+	)
+	
+	if uploaded_files:
+		if st.button("📥 Обработать документы", key="process_docs_btn"):
+			with st.spinner("Загрузка и векторизация документов..."):
+				import os
+				import tempfile
+				
+				docs_processed = 0
+				for file in uploaded_files:
+					# Сохраняем файл временно
+					with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.name}") as tmp_file:
+						tmp_file.write(file.getbuffer())
+						temp_path = tmp_file.name
+					
+					try:
+						# Загружаем в RAG
+						st.session_state.rag.load_from_file(temp_path)
+						docs_processed += 1
+					except Exception as e:
+						st.error(f"Ошибка обработки {file.name}: {e}")
+					finally:
+						# Удаляем временный файл
+						if os.path.exists(temp_path):
+							os.remove(temp_path)
+				
+				if docs_processed > 0:
+					st.success(f"✅ Обработано {docs_processed} документ(ов)")
+	
+	# Показываем статус индекса
+	if hasattr(st.session_state.rag, 'vectorstore') and st.session_state.rag.vectorstore:
+		st.info(f"📊 Индекс содержит {st.session_state.rag.vectorstore.index.ntotal} фрагментов")
+		if st.button("🗑️ Очистить базу знаний", key="clear_rag_btn"):
+			st.session_state.rag.vectorstore = None
+			st.rerun()
+	else:
+		st.caption("База знаний пуста. Загрузите документы для обогащения контекста.")
+	
+	# --- Метаданные ---
+	st.subheader("📌 Метаданные")
+	st.session_state.authors = st.text_input("Авторы (через запятую)", value=st.session_state.authors,
+	                                         key="authors_input")
+	st.session_state.publication_date = st.date_input("Дата публикации", value=st.session_state.publication_date,
+	                                                  key="pub_date_input")
+	st.session_state.source = st.text_input("Источник (журнал/конференция)", value=st.session_state.source,
+	                                        key="source_input")
+	
+	# --- Настройка весов для ранжирования ---
+	st.subheader("⚙️ Настройка ранжирования")
+	weight_novelty = st.slider(
+		"Вес новизны",
+		min_value=0.0, max_value=1.0, value=st.session_state.weights.get('novelty', 0.3), step=0.05,
+		key="weight_novelty"
+	)
+	weight_impact = st.slider(
+		"Вес потенциального эффекта",
+		min_value=0.0, max_value=1.0, value=st.session_state.weights.get('impact', 0.4), step=0.05,
+		key="weight_impact"
+	)
+	weight_risk = st.slider(
+		"Вес риска (чем выше, тем больше штраф за риск)",
+		min_value=0.0, max_value=1.0, value=st.session_state.weights.get('risk', 0.3), step=0.05,
+		key="weight_risk"
+	)
+	# Нормализация
+	total_w = weight_novelty + weight_impact + weight_risk
+	if total_w > 0:
+		st.session_state.weights = {
+			'novelty': weight_novelty / total_w,
+			'impact': weight_impact / total_w,
+			'risk': weight_risk / total_w
+		}
+	else:
+		st.session_state.weights = {'novelty': 0.3, 'impact': 0.4, 'risk': 0.3}
+	
+	# --- Применить фидбэк ---
+	if st.button("📊 Применить фидбэк для корректировки весов"):
+		feedback = st.session_state.get('feedback', {})
+		if feedback:
+			likes = sum(1 for v in feedback.values() if v == "like")
+			dislikes = sum(1 for v in feedback.values() if v == "dislike")
+			total = likes + dislikes
+			if total > 0:
+				ratio = likes / total
+				current_impact = st.session_state.weights.get('impact', 0.4)
+				new_impact = current_impact + (ratio - 0.5) * 0.2
+				new_impact = max(0.1, min(0.8, new_impact))
+				novelty = st.session_state.weights.get('novelty', 0.3)
+				risk = st.session_state.weights.get('risk', 0.3)
+				total_w = novelty + new_impact + risk
+				st.session_state.weights = {
+					'novelty': novelty / total_w,
+					'impact': new_impact / total_w,
+					'risk': risk / total_w
+				}
+				st.success("Весы обновлены на основе фидбэка!")
+			else:
+				st.warning("Нет достаточно фидбэка.")
+		else:
+			st.warning("Нет сохранённого фидбэка.")
+	
+	st.caption(
+		"По умолчанию локальная модель. Для yandex – ключи в .env. Поиск через DuckDuckGo (без ключей).")
 # --- Основная область ---
 st.header(t['sources'])
 
