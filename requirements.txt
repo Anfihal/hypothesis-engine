@@ -16,6 +16,7 @@ pyvis>=0.3.2
 # LLM и интеграция (локальная модель через Ollama)
 langchain>=0.1.0
 langchain-community>=0.0.10
+g4f>=7.7.1
 
 # Работа с PDF и OCR
 PyPDF2>=3.0.0          # извлечение текста из PDF

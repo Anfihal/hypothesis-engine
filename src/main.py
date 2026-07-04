@@ -39,8 +39,11 @@ def main():
     print("=== Knowledge Graph ===")
     print(graph_context)
     print("\n")
-
-    delib = HypothesisDeliberation(use_yandex=False, model_name="llama3.1:8b", timeout=45)
+    
+    delib = HypothesisDeliberation(provider="ollama", model="llama3.1:8b")
+    # delib = HypothesisDeliberation(provider="g4f", model="gpt-4o-mini")
+    # delib = HypothesisDeliberation(provider="yandex")
+    
     full_context = graph_context + "\nLiterature insights: Niobium forms carbides; two-step aging improves properties."
 
     print(f"Starting generation (language: {language})...")
