@@ -6,35 +6,70 @@ from langchain_community.llms import Ollama
 from src.llm.client import get_llm_client
 
 class HypothesisDeliberation:
-    def __init__(self, use_yandex: bool = False, model_name: str = "llama3.1:8b", timeout: int = 45):
+    def __init__(
+        self,
+        use_yandex: bool = False,
+        model_name: str = "llama3.1:8b",
+        timeout: int = 45,
+        enable_search: bool = True,
+        search_max_results: int = 3
+    ):
         self.timeout = timeout
         self.use_yandex = use_yandex
         self.model_name = model_name
+        self.enable_search = enable_search
+
+        # Инициализируем Yandex-клиент только если use_yandex=True
         self.yandex_client = None
-        try:
-            self.yandex_client = get_llm_client(use_yandex=True)
-        except Exception:
-            pass
+        if use_yandex:
+            try:
+                self.yandex_client = get_llm_client(use_yandex=True)
+            except Exception as e:
+                raise RuntimeError(f"Не удалось инициализировать Yandex GPT: {e}")
+
+        # Поиск (опционально)
+        self.search_manager = None
+        if enable_search:
+            try:
+                from src.search import SearchManager
+                self.search_manager = SearchManager(max_results=search_max_results, enable_web=True)
+            except ImportError:
+                print("⚠️ Модуль поиска не найден. Поиск в интернете отключён.")
 
     def _call_llm(self, prompt: str) -> str:
-        if not self.use_yandex:
+        if self.use_yandex:
+            if self.yandex_client is None:
+                raise RuntimeError("Yandex выбран, но клиент не инициализирован (проверьте .env).")
+            return self.yandex_client.generate(prompt, temperature=0.7)
+        else:
             try:
                 llm = Ollama(model=self.model_name, temperature=0.7, timeout=self.timeout)
                 return llm.invoke(prompt)
             except Exception as e:
-                print(f"⚠️ Локальная модель недоступна ({e}). Пробуем Yandex...")
-                if self.yandex_client:
-                    return self.yandex_client.generate(prompt, temperature=0.7)
-                else:
-                    raise RuntimeError("Локальная модель не работает, а Yandex не настроен.")
-        else:
-            if self.yandex_client:
-                return self.yandex_client.generate(prompt, temperature=0.7)
-            else:
-                raise RuntimeError("Yandex выбран, но клиент не настроен (проверьте .env).")
+                raise RuntimeError(f"Локальная модель ({self.model_name}) недоступна. Убедитесь, что Ollama запущен: {e}")
 
-    def run(self, kpi: str, constraints: str, context: str, language: str = 'en', max_rounds: int = 3) -> List[Dict]:
-        # Языковые инструкции
+    def run(
+        self,
+        kpi: str,
+        constraints: str,
+        context: str,
+        language: str = 'en',
+        max_rounds: int = 3
+    ) -> List[Dict]:
+        enhanced_context = context
+        if self.enable_search and self.search_manager:
+            try:
+                search_query = f"{kpi} materials science"
+                print(f"🔍 Поиск в интернете по запросу: {search_query}")
+                search_results = self.search_manager.search_and_summarize(search_query)
+                if search_results and "не найдены" not in search_results:
+                    enhanced_context += f"\n\n=== 🌐 Дополнительные источники из интернета ===\n{search_results}"
+                    print("✅ Найдены дополнительные источники")
+                else:
+                    print("ℹ️ Дополнительные источники не найдены")
+            except Exception as e:
+                print(f"⚠️ Ошибка при поиске: {e}")
+
         lang_instructions = {
             'en': "Answer in English.",
             'ru': "Ответь на русском языке.",
@@ -44,10 +79,10 @@ class HypothesisDeliberation:
 
         prompt = f"""
 You are a materials scientist. {lang_prompt}
-Given the following KPI, constraints, and knowledge context:
+Given the following KPI, constraints, and knowledge context (including web search results if provided):
 KPI: {kpi}
 Constraints: {constraints}
-Context: {context}
+Context: {enhanced_context}
 
 Generate 3 specific, testable hypotheses in JSON format. Each hypothesis must have:
 - statement (what to do)
@@ -85,12 +120,21 @@ Output only a JSON array. Example:
                 hypotheses = [hypotheses]
         except Exception as e:
             print(f"⚠️ Ошибка парсинга JSON: {e}. Сырой ответ: {response[:200]}...")
-            hypotheses = [{"statement": response, "mechanism": "", "novelty": "", "risk": "medium", "impact": "", "sources": [], "explanation": "", "recommendation": ""}]
+            hypotheses = [{
+                "statement": response,
+                "mechanism": "",
+                "novelty": "",
+                "risk": "medium",
+                "impact": "",
+                "sources": [],
+                "explanation": "",
+                "recommendation": ""
+            }]
 
         for h in hypotheses:
             h['generation_time'] = round(elapsed, 1)
-            # Убедимся, что поля существуют
             h.setdefault('sources', [])
             h.setdefault('explanation', '')
             h.setdefault('recommendation', '')
+
         return hypotheses

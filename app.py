@@ -6,31 +6,117 @@ import tempfile
 import re
 from datetime import datetime
 
+# === ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ ===
+print("🚀 Загрузка приложения...")
+
+# === БЕЗОПАСНЫЙ ИМПОРТ МОДУЛЕЙ ===
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from src.nlp.extractor import EntityExtractor
+    print("✅ src.nlp.extractor")
+except Exception as e:
+    print(f"❌ Ошибка импорта EntityExtractor: {e}")
+    st.error(f"Ошибка импорта: {e}")
+    st.stop()
+
+try:
+    from src.graph.kgraph import KnowledgeGraph
+    print("✅ src.graph.kgraph")
+except Exception as e:
+    print(f"❌ Ошибка импорта KnowledgeGraph: {e}")
+    st.error(f"Ошибка импорта: {e}")
+    st.stop()
+
+try:
+    from src.generation.deliberation import HypothesisDeliberation
+    print("✅ src.generation.deliberation")
+except Exception as e:
+    print(f"❌ Ошибка импорта HypothesisDeliberation: {e}")
+    st.error(f"Ошибка импорта: {e}")
+    st.stop()
+
+try:
+    from src.ranking.scorer import rank_hypotheses
+    print("✅ src.ranking.scorer")
+except Exception as e:
+    print(f"❌ Ошибка импорта rank_hypotheses: {e}")
+    st.error(f"Ошибка импорта: {e}")
+    st.stop()
+
+# === ОПЦИОНАЛЬНЫЕ МОДУЛИ (PDF, OCR) ===
 try:
     from PIL import Image
     import pytesseract
+    print("✅ PIL + pytesseract")
 except ImportError:
     pytesseract = None
     Image = None
+    print("⚠️ PIL или pytesseract не установлены")
 
 try:
     import PyPDF2
+    print("✅ PyPDF2")
 except ImportError:
     PyPDF2 = None
+    print("⚠️ PyPDF2 не установлен")
 
 try:
     from pdf2image import convert_from_path
+    print("✅ pdf2image")
 except ImportError:
     convert_from_path = None
+    print("⚠️ pdf2image не установлен")
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# === КЕШИРОВАННЫЕ ФУНКЦИИ ===
+@st.cache_data(show_spinner=False)
+def cached_extract_text_from_pdf(file_bytes):
+    if PyPDF2 is None:
+        return None
+    try:
+        from io import BytesIO
+        pdf_reader = PyPDF2.PdfReader(BytesIO(file_bytes))
+        text = ""
+        for page in pdf_reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+        return text.strip() if text.strip() else None
+    except Exception:
+        return None
 
-from src.nlp.extractor import EntityExtractor
-from src.graph.kgraph import KnowledgeGraph
-from src.generation.deliberation import HypothesisDeliberation
-from src.ranking.scorer import rank_hypotheses
+@st.cache_data(show_spinner=False)
+def cached_extract_text_from_image(file_bytes):
+    if pytesseract is None or Image is None:
+        return None
+    try:
+        from io import BytesIO
+        image = Image.open(BytesIO(file_bytes))
+        text = pytesseract.image_to_string(image, lang='eng+rus')
+        return text.strip() if text.strip() else None
+    except Exception:
+        return None
 
-# --- Словари для мультиязычного интерфейса ---
+@st.cache_data(show_spinner=False)
+def cached_extract_text_from_pdf_ocr(file_bytes, poppler_path=None):
+    if convert_from_path is None:
+        return None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        images = convert_from_path(tmp_path, poppler_path=poppler_path, dpi=200)
+        os.unlink(tmp_path)
+        full_text = ""
+        for i, img in enumerate(images):
+            text = pytesseract.image_to_string(img, lang='eng+rus')
+            if text:
+                full_text += f"--- Page {i+1} ---\n" + text + "\n"
+        return full_text.strip() if full_text.strip() else None
+    except Exception:
+        return None
+
+# === МУЛЬТИЯЗЫЧНЫЕ ТЕКСТЫ ===
 TEXTS = {
     'en': {
         'title': "🧪 Scientific Hypothesis Generator",
@@ -62,7 +148,15 @@ TEXTS = {
         'success': "✅ Generated {count} hypotheses!",
         'error_no_text': "Please enter or upload literature text.",
         'error_general': "❌ Error: {error}",
-        'empty_graph': "Graph is empty."
+        'empty_graph': "Graph is empty.",
+        'not_specified': "not specified",
+        'enable_search': "🔍 Enable internet search",
+        'example': """The addition of 0.5% niobium to Inconel 718 significantly increases yield strength at elevated temperatures.
+Previous studies show that niobium forms stable carbides which hinder dislocation motion.
+However, excess niobium may cause embrittlement due to phase precipitation.
+Recent experiments indicate that a two-step aging treatment can further enhance creep resistance.
+Also, the use of tantalum has been explored but is expensive and limited in supply.
+Grain boundary engineering through thermomechanical processing improves durability."""
     },
     'ru': {
         'title': "🧪 Генератор научных гипотез",
@@ -94,7 +188,15 @@ TEXTS = {
         'success': "✅ Сгенерировано {count} гипотез!",
         'error_no_text': "Пожалуйста, введите или загрузите текст литературы.",
         'error_general': "❌ Ошибка: {error}",
-        'empty_graph': "Граф пуст."
+        'empty_graph': "Граф пуст.",
+        'not_specified': "не указаны",
+        'enable_search': "🔍 Включить поиск в интернете",
+        'example': """Добавление 0.5% ниобия в сплав Inconel 718 значительно повышает предел текучести при повышенных температурах.
+Предыдущие исследования показывают, что ниобий образует стабильные карбиды, которые препятствуют движению дислокаций.
+Однако избыток ниобия может вызвать охрупчивание из-за выделения фаз.
+Недавние эксперименты показывают, что двухступенчатая обработка старением может дополнительно повысить сопротивление ползучести.
+Также изучалось использование тантала, но он дорог и ограничен в поставках.
+Улучшение границ зёрен с помощью термомеханической обработки повышает долговечность."""
     },
     'zh': {
         'title': "🧪 科学假设生成器",
@@ -126,143 +228,182 @@ TEXTS = {
         'success': "✅ 已生成 {count} 个假设！",
         'error_no_text': "请输入或上传文献文本。",
         'error_general': "❌ 错误：{error}",
-        'empty_graph': "图谱为空。"
+        'empty_graph': "图谱为空。",
+        'not_specified': "未指定",
+        'enable_search': "🔍 启用互联网搜索",
+        'example': """在Inconel 718中添加0.5%的铌可显著提高高温下的屈服强度。
+先前的研究表明，铌形成稳定的碳化物，阻碍位错运动。
+然而，过量的铌可能因相析出而导致脆化。
+最近的实验表明，两步时效处理可以进一步提高抗蠕变性。
+此外，还探索了钽的使用，但钽价格昂贵且供应有限。
+通过热机械加工进行晶界工程可提高耐久性。"""
     }
 }
 
-st.set_page_config(page_title="Генератор гипотез", page_icon="🧪", layout="wide")
+# === ИНИЦИАЛИЗАЦИЯ SESSION_STATE ===
+if 'lang' not in st.session_state:
+    st.session_state.lang = 'ru'
+if 'prev_lang' not in st.session_state:
+    st.session_state.prev_lang = st.session_state.lang
+if 'kpi' not in st.session_state:
+    st.session_state.kpi = "Increase creep resistance of nickel-based superalloy by 20% at 700°C"
+if 'constraints' not in st.session_state:
+    st.session_state.constraints = "No rhenium, budget < $500k, scalable to industrial production"
+if 'literature' not in st.session_state:
+    st.session_state.literature = TEXTS[st.session_state.lang]['example']
+if 'literature_edited' not in st.session_state:
+    st.session_state.literature_edited = False
+if 'use_yandex' not in st.session_state:
+    st.session_state.use_yandex = False
+if 'model_name' not in st.session_state:
+    st.session_state.model_name = "llama3.1:8b"
+if 'enable_search' not in st.session_state:
+    st.session_state.enable_search = False   # по умолчанию ОТКЛЮЧЁН, чтобы не зависеть от duckduckgo
+if 'hypotheses' not in st.session_state:
+    st.session_state.hypotheses = None
+if 'kg' not in st.session_state:
+    st.session_state.kg = None
 
-# --- Выбор языка ---
-lang = st.sidebar.selectbox("Language / Язык / 语言", ["en", "ru", "zh"], index=1)
+print("✅ session_state инициализирован")
+
+# === НАСТРОЙКА СТРАНИЦЫ ===
+st.set_page_config(
+    page_title="Генератор гипотез" if st.session_state.lang == 'ru' else "Hypothesis Generator" if st.session_state.lang == 'en' else "假设生成器",
+    page_icon="🧪",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# === ОТОБРАЖЕНИЕ ===
+lang = st.session_state.lang
 t = TEXTS[lang]
+
+if lang != st.session_state.prev_lang and not st.session_state.literature_edited:
+    st.session_state.literature = t['example']
+st.session_state.prev_lang = lang
 
 st.title(t['title'])
 st.markdown("---")
 
-# --- Вспомогательные функции ---
-def extract_text_from_pdf(file):
-    if PyPDF2 is None:
-        return None
-    try:
-        pdf_reader = PyPDF2.PdfReader(file)
-        text = ""
-        for page in pdf_reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-        return text.strip() if text.strip() else None
-    except Exception as e:
-        st.warning(f"Ошибка чтения PDF: {e}")
-        return None
-
-def extract_text_from_image(file):
-    if pytesseract is None or Image is None:
-        return None
-    try:
-        image = Image.open(file)
-        text = pytesseract.image_to_string(image, lang='eng+rus')
-        return text.strip() if text.strip() else None
-    except Exception as e:
-        st.warning(f"Ошибка OCR: {e}")
-        return None
-
-def extract_text_from_pdf_with_ocr(file, poppler_path=None):
-    if convert_from_path is None:
-        return None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(file.read())
-            tmp_path = tmp.name
-        images = convert_from_path(tmp_path, poppler_path=poppler_path, dpi=200)
-        os.unlink(tmp_path)
-        full_text = ""
-        for i, img in enumerate(images):
-            text = pytesseract.image_to_string(img, lang='eng+rus')
-            if text:
-                full_text += f"--- Page {i+1} ---\n" + text + "\n"
-        return full_text.strip() if full_text.strip() else None
-    except Exception as e:
-        st.warning(f"Ошибка OCR PDF: {e}")
-        return None
-
 # --- Боковая панель ---
 with st.sidebar:
+    new_lang = st.selectbox(
+        t['lang'],
+        options=["ru", "en", "zh"],
+        index=["ru", "en", "zh"].index(lang),
+        key="lang_selector"
+    )
+    if new_lang != lang:
+        st.session_state.lang = new_lang
+        st.rerun()
+
     st.header(t['params'])
-    kpi = st.text_area(t['kpi'], value="Increase creep resistance of nickel-based superalloy by 20% at 700°C")
-    constraints = st.text_area(t['constraints'], value="No rhenium, budget < $500k, scalable to industrial production")
+    st.session_state.kpi = st.text_area(t['kpi'], value=st.session_state.kpi, key="kpi_input")
+    st.session_state.constraints = st.text_area(t['constraints'], value=st.session_state.constraints, key="constraints_input")
     st.subheader(t['model'])
-    use_yandex = st.checkbox(t['use_yandex'], value=False)
-    model_name = st.selectbox(t['local_model'], ["llama3.1:8b", "mistral:7b", "llama3.2:3b"], index=0) if not use_yandex else None
-    st.caption("По умолчанию используется локальная модель. При недоступности – автоматический fallback на Yandex (если задан ключ).")
+    st.session_state.use_yandex = st.checkbox(t['use_yandex'], value=st.session_state.use_yandex, key="use_yandex_check")
+    st.session_state.model_name = st.selectbox(
+        t['local_model'],
+        ["llama3.1:8b", "mistral:7b", "llama3.2:3b"],
+        index=0,
+        key="model_selector"
+    ) if not st.session_state.use_yandex else None
+    st.session_state.enable_search = st.checkbox(t['enable_search'], value=st.session_state.enable_search, key="enable_search_check")
+    st.caption("По умолчанию локальная модель. Поиск требует установки duckduckgo-search.")
 
 # --- Основная область ---
 st.header(t['sources'])
-literature_text = st.text_area(
+
+def on_text_change():
+    st.session_state.literature_edited = True
+
+st.session_state.literature = st.text_area(
     t['text_input'],
-    value="""The addition of 0.5% niobium to Inconel 718 significantly increases yield strength at elevated temperatures.
-Previous studies show that niobium forms stable carbides which hinder dislocation motion.
-However, excess niobium may cause embrittlement due to phase precipitation.
-Recent experiments indicate that a two-step aging treatment can further enhance creep resistance.
-Also, the use of tantalum has been explored but is expensive and limited in supply.
-Grain boundary engineering through thermomechanical processing improves durability.""",
-    height=200
+    value=st.session_state.literature,
+    height=200,
+    key="literature_input",
+    on_change=on_text_change
 )
 
-uploaded_files = st.file_uploader(t['upload'], type=["txt", "pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
+uploaded_files = st.file_uploader(
+    t['upload'],
+    type=["txt", "pdf", "png", "jpg", "jpeg"],
+    accept_multiple_files=True,
+    key="file_uploader"
+)
 
 if uploaded_files:
     for file in uploaded_files:
         ext = file.name.split('.')[-1].lower()
+        file_bytes = file.read()
         if ext == "txt":
             try:
-                content = file.read().decode("utf-8")
-                literature_text += "\n\n" + content
+                content = file_bytes.decode("utf-8")
+                st.session_state.literature += "\n\n" + content
+                st.session_state.literature_edited = True
                 st.success(f"Добавлен текст из {file.name}")
             except Exception as e:
                 st.error(f"Ошибка чтения {file.name}: {e}")
         elif ext == "pdf":
-            text_from_pdf = extract_text_from_pdf(file)
+            text_from_pdf = cached_extract_text_from_pdf(file_bytes)
             if text_from_pdf and len(text_from_pdf) > 100:
-                literature_text += "\n\n" + text_from_pdf
+                st.session_state.literature += "\n\n" + text_from_pdf
+                st.session_state.literature_edited = True
                 st.success(f"Извлечён текст из PDF {file.name}")
             else:
-                file.seek(0)
-                ocr_text = extract_text_from_pdf_with_ocr(file, poppler_path=None)
+                ocr_text = cached_extract_text_from_pdf_ocr(file_bytes, poppler_path=None)
                 if ocr_text:
-                    literature_text += "\n\n" + ocr_text
+                    st.session_state.literature += "\n\n" + ocr_text
+                    st.session_state.literature_edited = True
                     st.success(f"Извлечён текст через OCR из {file.name}")
                 else:
                     st.warning(f"Не удалось извлечь текст из {file.name}")
         elif ext in ["png", "jpg", "jpeg"]:
-            file.seek(0)
-            ocr_text = extract_text_from_image(file)
+            ocr_text = cached_extract_text_from_image(file_bytes)
             if ocr_text:
-                literature_text += "\n\n" + ocr_text
+                st.session_state.literature += "\n\n" + ocr_text
+                st.session_state.literature_edited = True
                 st.success(f"Распознан текст из изображения {file.name}")
             else:
                 st.warning(f"Не удалось распознать текст из {file.name}")
 
 # --- Кнопка генерации ---
 if st.button(t['generate'], type="primary"):
-    if not literature_text.strip():
+    if not st.session_state.literature.strip():
         st.error(t['error_no_text'])
     else:
         with st.spinner("Идёт генерация гипотез... (может занять 20–60 секунд)"):
             try:
                 extractor = EntityExtractor()
-                analysis = extractor.process_document(literature_text)
+                analysis = extractor.process_document(st.session_state.literature)
                 kg = KnowledgeGraph()
                 for ent in analysis['entities']:
                     kg.add_entity(ent['text'], ent['label'])
                 for rel in analysis['relationships']:
                     kg.add_relation(rel['subject'], rel['relation'], rel['object'], rel['evidence'])
                 graph_context = kg.to_text_context()
-                
-                delib = HypothesisDeliberation(use_yandex=use_yandex, model_name=model_name if not use_yandex else "llama3.1:8b", timeout=45)
-                full_context = graph_context + "\nLiterature insights: " + "; ".join([f"{rel['subject']} {rel['relation']} {rel['object']}" for rel in analysis['relationships'][:5]])
-                
-                hypotheses = delib.run(kpi, constraints, full_context, language=lang, max_rounds=2)
-                
+
+                # Создаём экземпляр с учётом настроек поиска
+                delib = HypothesisDeliberation(
+                    use_yandex=st.session_state.use_yandex,
+                    model_name=st.session_state.model_name if not st.session_state.use_yandex else "llama3.1:8b",
+                    timeout=45,
+                    enable_search=st.session_state.enable_search
+                )
+
+                full_context = graph_context + "\nLiterature insights: " + "; ".join([
+                    f"{rel['subject']} {rel['relation']} {rel['object']}"
+                    for rel in analysis['relationships'][:5]
+                ])
+
+                hypotheses = delib.run(
+                    st.session_state.kpi,
+                    st.session_state.constraints,
+                    full_context,
+                    language=lang,
+                    max_rounds=2
+                )
+
                 # Ранжирование
                 for hyp in hypotheses:
                     if 'novelty' not in hyp:
@@ -285,26 +426,24 @@ if st.button(t['generate'], type="primary"):
                     hyp.setdefault('sources', [])
                     hyp.setdefault('explanation', '')
                     hyp.setdefault('recommendation', '')
-                
+
                 ranked = rank_hypotheses(hypotheses)
-                st.session_state['hypotheses'] = ranked
-                st.session_state['kg'] = kg
-                st.session_state['kpi'] = kpi
-                st.session_state['constraints'] = constraints
+                st.session_state.hypotheses = ranked
+                st.session_state.kg = kg
                 st.success(t['success'].format(count=len(ranked)))
-                
+
             except Exception as e:
                 st.error(t['error_general'].format(error=str(e)))
                 st.exception(e)
 
 # --- Отображение результатов ---
-if 'hypotheses' in st.session_state:
+if st.session_state.hypotheses is not None:
     st.markdown("---")
     st.header(t['results'])
-    
-    if 'kg' in st.session_state:
+
+    if st.session_state.kg is not None:
         with st.expander(t['graph'], expanded=False):
-            kg = st.session_state['kg']
+            kg = st.session_state.kg
             if kg.graph.number_of_nodes() > 0:
                 try:
                     from pyvis.network import Network
@@ -323,8 +462,8 @@ if 'hypotheses' in st.session_state:
                     st.warning(f"Не удалось отобразить граф: {e}")
             else:
                 st.info(t['empty_graph'])
-    
-    hypotheses = st.session_state['hypotheses']
+
+    hypotheses = st.session_state.hypotheses
     for i, hyp in enumerate(hypotheses, 1):
         score = hyp.get('score', 0)
         color = "🟢" if score > 0.7 else "🟡" if score > 0.4 else "🔴"
@@ -339,31 +478,36 @@ if 'hypotheses' in st.session_state:
             if sources:
                 st.markdown(f"**{t['sources_label']}:** {', '.join(sources)}")
             else:
-                st.markdown(f"**{t['sources_label']}:** {t.get('not specified', 'не указаны')}")
+                st.markdown(f"**{t['sources_label']}:** {t['not_specified']}")
             st.markdown(f"**{t['explanation']}:** {hyp.get('explanation', 'N/A')}")
             st.markdown(f"**{t['recommendation']}:** {hyp.get('recommendation', 'N/A')}")
             if hyp.get('generation_time'):
                 st.caption(f"⏱️ {t['time']}: {hyp['generation_time']} сек")
             st.markdown("---")
-    
+
     # Экспорт
     col1, col2 = st.columns(2)
     with col1:
         if st.button(t['export_json']):
             output = {
-                "kpi": st.session_state.get('kpi', ''),
-                "constraints": st.session_state.get('constraints', ''),
+                "kpi": st.session_state.kpi,
+                "constraints": st.session_state.constraints,
                 "language": lang,
                 "timestamp": datetime.now().isoformat(),
                 "hypotheses": hypotheses
             }
             json_str = json.dumps(output, indent=2, ensure_ascii=False)
-            st.download_button(label="Скачать JSON", data=json_str, file_name=f"hypotheses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", mime="application/json")
+            st.download_button(
+                label="Скачать JSON",
+                data=json_str,
+                file_name=f"hypotheses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
+            )
     with col2:
         if st.button(t['export_txt']):
             report = f"=== {t['title']} ===\n"
-            report += f"{t['kpi']}: {st.session_state.get('kpi', '')}\n"
-            report += f"{t['constraints']}: {st.session_state.get('constraints', '')}\n"
+            report += f"{t['kpi']}: {st.session_state.kpi}\n"
+            report += f"{t['constraints']}: {st.session_state.constraints}\n"
             report += f"Language: {lang}\n\n"
             for i, hyp in enumerate(hypotheses, 1):
                 report += f"{t['statement']} {i} ({t['score']}: {hyp.get('score', 0):.2f})\n"
@@ -378,4 +522,11 @@ if 'hypotheses' in st.session_state:
                 report += f"  {t['explanation']}: {hyp.get('explanation', 'N/A')}\n"
                 report += f"  {t['recommendation']}: {hyp.get('recommendation', 'N/A')}\n"
                 report += f"  {t['time']}: {hyp.get('generation_time', 'N/A')} сек\n\n"
-            st.download_button(label="Скачать TXT", data=report, file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", mime="text/plain")
+            st.download_button(
+                label="Скачать TXT",
+                data=report,
+                file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain"
+            )
+
+print("✅ Приложение успешно загружено")
