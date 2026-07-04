@@ -1,74 +1,96 @@
 import re
 import json
 import time
+import requests
 from typing import List, Dict, Optional
-from langchain_community.llms import Ollama
 from src.llm.client import get_llm_client
 
 class HypothesisDeliberation:
     def __init__(
         self,
-        use_yandex: bool = False,
-        model_name: str = "llama3.1:8b",
-        timeout: int = 45,
+        provider: str = "ollama",
+        model: str = None,
+        timeout: int = 600,
         enable_search: bool = True,
-        search_max_results: int = 3
+        search_max_results: int = 3,
+        warm_up: bool = True
     ):
+        self.provider = provider
         self.timeout = timeout
-        self.use_yandex = use_yandex
-        self.model_name = model_name
         self.enable_search = enable_search
+        self.warm_up = warm_up
+        self._warmed_up = False
+        self.model_name = model or ("llama3.1:8b" if provider == "ollama" else "gpt-4o-mini")
+        self.last_search_results = []
 
-        # Инициализируем Yandex-клиент только если use_yandex=True
-        self.yandex_client = None
-        if use_yandex:
+        # Инициализация LLM
+        if provider == "yandex":
+            self.llm = get_llm_client(use_yandex=True)
+        elif provider == "ollama":
+            self.llm = None  # будем использовать прямой HTTP
+        elif provider == "g4f":
             try:
-                self.yandex_client = get_llm_client(use_yandex=True)
-            except Exception as e:
-                raise RuntimeError(f"Не удалось инициализировать Yandex GPT: {e}")
+                from src.llm.client import G4FClient
+                self.llm = G4FClient(model=self.model_name)
+            except ImportError:
+                raise RuntimeError("G4F не установлен. Установите: pip install g4f")
+        else:
+            raise ValueError(f"Неподдерживаемый провайдер: {provider}")
 
-        # Поиск (опционально)
+        # Поисковик
         self.search_manager = None
         if enable_search:
             try:
                 from src.search import SearchManager
                 self.search_manager = SearchManager(max_results=search_max_results, enable_web=True)
             except ImportError:
-                print("⚠️ Модуль поиска не найден. Поиск в интернете отключён.")
+                print("⚠️ Модуль поиска не найден. Поиск отключён.")
 
     def _call_llm(self, prompt: str) -> str:
-        if self.use_yandex:
-            if self.yandex_client is None:
-                raise RuntimeError("Yandex выбран, но клиент не инициализирован (проверьте .env).")
-            return self.yandex_client.generate(prompt, temperature=0.7)
-        else:
+        if self.provider == "ollama":
+            url = "http://localhost:11434/api/generate"
+            payload = {
+                "model": self.model_name,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0.7, "num_predict": 2048}
+            }
             try:
-                llm = Ollama(model=self.model_name, temperature=0.7, timeout=self.timeout)
-                return llm.invoke(prompt)
+                if self.warm_up and not self._warmed_up:
+                    print("🔄 Прогрев модели...")
+                    warm = {"model": self.model_name, "prompt": "Hello", "stream": False}
+                    requests.post(url, json=warm, timeout=60).raise_for_status()
+                    self._warmed_up = True
+                    print("✅ Модель прогрета.")
+                resp = requests.post(url, json=payload, timeout=self.timeout)
+                resp.raise_for_status()
+                return resp.json().get("response", "")
+            except requests.exceptions.Timeout:
+                raise RuntimeError(f"Таймаут {self.timeout} сек. Попробуйте увеличить таймаут или использовать более лёгкую модель.")
             except Exception as e:
-                raise RuntimeError(f"Локальная модель ({self.model_name}) недоступна. Убедитесь, что Ollama запущен: {e}")
+                raise RuntimeError(f"Ошибка Ollama: {e}")
+        else:
+            # Yandex или G4F
+            return self.llm.invoke(prompt)
 
-    def run(
-        self,
-        kpi: str,
-        constraints: str,
-        context: str,
-        language: str = 'en',
-        max_rounds: int = 3
-    ) -> List[Dict]:
+    def run(self, kpi: str, constraints: str, context: str, language: str = 'en', max_rounds: int = 3) -> List[Dict]:
         enhanced_context = context
+        self.last_search_results = []
+
         if self.enable_search and self.search_manager:
             try:
                 search_query = f"{kpi} materials science"
-                print(f"🔍 Поиск в интернете по запросу: {search_query}")
-                search_results = self.search_manager.search_and_summarize(search_query)
-                if search_results and "не найдены" not in search_results:
-                    enhanced_context += f"\n\n=== 🌐 Дополнительные источники из интернета ===\n{search_results}"
-                    print("✅ Найдены дополнительные источники")
+                print(f"🔍 Поиск: {search_query}")
+                search_summary = self.search_manager.search_and_summarize(search_query)
+                raw = self.search_manager.get_last_results()
+                self.last_search_results = raw
+                if search_summary and "не найдены" not in search_summary:
+                    enhanced_context += f"\n\n=== 🌐 Источники из интернета ===\n{search_summary}"
+                    print("✅ Найдены источники")
                 else:
-                    print("ℹ️ Дополнительные источники не найдены")
+                    print("ℹ️ Источников не найдено")
             except Exception as e:
-                print(f"⚠️ Ошибка при поиске: {e}")
+                print(f"⚠️ Ошибка поиска: {e}")
 
         lang_instructions = {
             'en': "Answer in English.",
@@ -90,28 +112,16 @@ Generate 3 specific, testable hypotheses in JSON format. Each hypothesis must ha
 - novelty (what makes it new compared to existing knowledge)
 - risk (low/medium/high)
 - impact (expected effect on KPI in % or qualitative)
-- sources (list of specific phrases or facts from the context that support this hypothesis)
+- sources (list of specific phrases, facts, or URLs from the context that support this hypothesis)
 - explanation (detailed reasoning for why this hypothesis is plausible)
 - recommendation (brief recommendation on how to test or implement this hypothesis)
 
-Output only a JSON array. Example:
-[
-  {{
-    "statement": "Add 0.3% Nb to alloy X",
-    "mechanism": "Nb forms carbides hindering dislocation motion, as mentioned in the context about carbides.",
-    "novelty": "First study on this composition at 700°C",
-    "risk": "medium",
-    "impact": "+15% creep resistance",
-    "sources": ["Niobium forms stable carbides", "Two-step aging improves properties"],
-    "explanation": "Niobium carbides precipitate at grain boundaries, reducing creep by pinning dislocations.",
-    "recommendation": "Test with 0.3% Nb and compare with baseline using creep tests at 700°C."
-  }}
-]
+Output only a JSON array.
 """
         start_time = time.time()
         response = self._call_llm(prompt)
         elapsed = time.time() - start_time
-        print(f"⏱️ Время ответа: {elapsed:.1f} секунд")
+        print(f"⏱️ Время ответа: {elapsed:.1f} сек")
 
         try:
             json_str = re.search(r'\[.*\]', response, re.DOTALL).group()
@@ -119,7 +129,7 @@ Output only a JSON array. Example:
             if not isinstance(hypotheses, list):
                 hypotheses = [hypotheses]
         except Exception as e:
-            print(f"⚠️ Ошибка парсинга JSON: {e}. Сырой ответ: {response[:200]}...")
+            print(f"⚠️ Ошибка парсинга JSON: {e}")
             hypotheses = [{
                 "statement": response,
                 "mechanism": "",

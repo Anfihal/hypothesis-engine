@@ -6,7 +6,7 @@ import tempfile
 import re
 from datetime import datetime
 
-# === ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ ===
+# === ЛОГИРОВАНИЕ ===
 print("🚀 Загрузка приложения...")
 
 # === БЕЗОПАСНЫЙ ИМПОРТ МОДУЛЕЙ ===
@@ -124,7 +124,7 @@ TEXTS = {
         'kpi': "Target KPI",
         'constraints': "Constraints",
         'model': "Model",
-        'use_yandex': "Use Yandex GPT (fallback)",
+        'provider': "Provider",
         'local_model': "Local model (Ollama)",
         'lang': "Language",
         'sources': "Knowledge Sources",
@@ -164,7 +164,7 @@ Grain boundary engineering through thermomechanical processing improves durabili
         'kpi': "Целевой KPI",
         'constraints': "Ограничения",
         'model': "Модель",
-        'use_yandex': "Использовать Yandex GPT (резерв)",
+        'provider': "Провайдер",
         'local_model': "Локальная модель (Ollama)",
         'lang': "Язык",
         'sources': "Источники знаний",
@@ -204,7 +204,7 @@ Grain boundary engineering through thermomechanical processing improves durabili
         'kpi': "目标 KPI",
         'constraints': "约束条件",
         'model': "模型",
-        'use_yandex': "使用 Yandex GPT (备用)",
+        'provider': "提供商",
         'local_model': "本地模型 (Ollama)",
         'lang': "语言",
         'sources': "知识来源",
@@ -253,12 +253,12 @@ if 'literature' not in st.session_state:
     st.session_state.literature = TEXTS[st.session_state.lang]['example']
 if 'literature_edited' not in st.session_state:
     st.session_state.literature_edited = False
-if 'use_yandex' not in st.session_state:
-    st.session_state.use_yandex = False
+if 'provider' not in st.session_state:
+    st.session_state.provider = "ollama"
 if 'model_name' not in st.session_state:
     st.session_state.model_name = "llama3.1:8b"
 if 'enable_search' not in st.session_state:
-    st.session_state.enable_search = False   # по умолчанию ОТКЛЮЧЁН, чтобы не зависеть от duckduckgo
+    st.session_state.enable_search = False
 if 'hypotheses' not in st.session_state:
     st.session_state.hypotheses = None
 if 'kg' not in st.session_state:
@@ -300,16 +300,39 @@ with st.sidebar:
     st.header(t['params'])
     st.session_state.kpi = st.text_area(t['kpi'], value=st.session_state.kpi, key="kpi_input")
     st.session_state.constraints = st.text_area(t['constraints'], value=st.session_state.constraints, key="constraints_input")
+
     st.subheader(t['model'])
-    st.session_state.use_yandex = st.checkbox(t['use_yandex'], value=st.session_state.use_yandex, key="use_yandex_check")
-    st.session_state.model_name = st.selectbox(
-        t['local_model'],
-        ["llama3.1:8b", "mistral:7b", "llama3.2:3b"],
-        index=0,
-        key="model_selector"
-    ) if not st.session_state.use_yandex else None
-    st.session_state.enable_search = st.checkbox(t['enable_search'], value=st.session_state.enable_search, key="enable_search_check")
-    st.caption("По умолчанию локальная модель. Поиск требует установки duckduckgo-search.")
+    provider = st.selectbox(
+        t['provider'],
+        options=["ollama", "g4f", "yandex"],
+        index=["ollama", "g4f", "yandex"].index(st.session_state.provider),
+        key="provider_selector"
+    )
+    st.session_state.provider = provider
+
+    if provider == "ollama":
+        st.session_state.model_name = st.selectbox(
+            t['local_model'],
+            ["llama3.1:8b", "mistral:7b", "llama3.2:3b"],
+            index=0,
+            key="ollama_model"
+        )
+    elif provider == "g4f":
+        st.session_state.model_name = st.selectbox(
+            "G4F модель",
+            ["gpt-4o-mini", "gpt-4o", "claude-3-haiku", "gemini-1.5-flash"],
+            index=0,
+            key="g4f_model"
+        )
+    else:
+        st.session_state.model_name = "yandexgpt"
+
+    st.session_state.enable_search = st.checkbox(
+        t['enable_search'],
+        value=st.session_state.enable_search,
+        key="enable_search_check"
+    )
+    st.caption("По умолчанию локальная модель. Для g4f нужен интернет, для yandex – ключи в .env. Поиск через DuckDuckGo (без ключей).")
 
 # --- Основная область ---
 st.header(t['sources'])
@@ -372,7 +395,7 @@ if st.button(t['generate'], type="primary"):
     if not st.session_state.literature.strip():
         st.error(t['error_no_text'])
     else:
-        with st.spinner("Идёт генерация гипотез... (может занять 20–60 секунд)"):
+        with st.spinner("Идёт генерация гипотез... (может занять 1–3 минуты)"):
             try:
                 extractor = EntityExtractor()
                 analysis = extractor.process_document(st.session_state.literature)
@@ -383,11 +406,10 @@ if st.button(t['generate'], type="primary"):
                     kg.add_relation(rel['subject'], rel['relation'], rel['object'], rel['evidence'])
                 graph_context = kg.to_text_context()
 
-                # Создаём экземпляр с учётом настроек поиска
                 delib = HypothesisDeliberation(
-                    use_yandex=st.session_state.use_yandex,
-                    model_name=st.session_state.model_name if not st.session_state.use_yandex else "llama3.1:8b",
-                    timeout=45,
+                    provider=st.session_state.provider,
+                    model=st.session_state.model_name,
+                    timeout=600,
                     enable_search=st.session_state.enable_search
                 )
 
@@ -430,6 +452,7 @@ if st.button(t['generate'], type="primary"):
                 ranked = rank_hypotheses(hypotheses)
                 st.session_state.hypotheses = ranked
                 st.session_state.kg = kg
+                st.session_state.last_search_results = delib.last_search_results if hasattr(delib, 'last_search_results') else []
                 st.success(t['success'].format(count=len(ranked)))
 
             except Exception as e:
@@ -463,6 +486,18 @@ if st.session_state.hypotheses is not None:
             else:
                 st.info(t['empty_graph'])
 
+    # Отображение найденных источников (если есть)
+    if hasattr(st.session_state, 'last_search_results') and st.session_state.last_search_results:
+        st.subheader("🌐 Найденные источники")
+        for res in st.session_state.last_search_results[:8]:
+            with st.expander(f"📄 {res.get('title', 'Без названия')}"):
+                st.write(f"**Источник:** {res.get('source', '')}")
+                st.write(f"**Проверенность:** {res.get('verification', '')}")
+                st.write(f"**Аннотация:** {res.get('abstract', '')[:500]}...")
+                if res.get('url'):
+                    st.markdown(f"**Ссылка:** [{res['url']}]({res['url']})")
+
+    # Гипотезы
     hypotheses = st.session_state.hypotheses
     for i, hyp in enumerate(hypotheses, 1):
         score = hyp.get('score', 0)
@@ -476,7 +511,14 @@ if st.session_state.hypotheses is not None:
             st.markdown(f"**{t['impact']}:** {hyp.get('impact', 0):.2f}")
             sources = hyp.get('sources', [])
             if sources:
-                st.markdown(f"**{t['sources_label']}:** {', '.join(sources)}")
+                # Отображаем источники с возможными ссылками
+                sources_display = []
+                for src in sources:
+                    if src.startswith('http'):
+                        sources_display.append(f"[{src}]({src})")
+                    else:
+                        sources_display.append(src)
+                st.markdown(f"**{t['sources_label']}:** {', '.join(sources_display)}")
             else:
                 st.markdown(f"**{t['sources_label']}:** {t['not_specified']}")
             st.markdown(f"**{t['explanation']}:** {hyp.get('explanation', 'N/A')}")

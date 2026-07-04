@@ -1,6 +1,7 @@
 import os
 import requests
 from dotenv import load_dotenv
+from g4f.client import Client
 
 load_dotenv()
 
@@ -32,3 +33,22 @@ def get_llm_client(use_yandex: bool = False):
     else:
         # Локальный клиент (можно вернуть None или выбросить исключение)
         return None
+
+class G4FClient:
+    def __init__(self, model: str = "gpt-4o-mini"):
+        self.client = Client()
+        self.model = model
+
+    def invoke(self, prompt: str) -> str:
+        """
+        invoke нужен для унификации с LangChain.
+        """
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            # g4f иногда может выдавать ошибки, если провайдер отвалился
+            return f"Ошибка генерации через g4f: {str(e)}"
