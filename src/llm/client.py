@@ -28,26 +28,15 @@ class YandexGPTClient:
         response.raise_for_status()
         return response.json()["result"]["alternatives"][0]["message"]["text"]
 
-<<<<<<< HEAD
-    # === ДОБАВЛЯЕМ МЕТОД invoke ДЛЯ СОВМЕСТИМОСТИ ===
+    # Метод invoke для совместимости с другими провайдерами
     def invoke(self, prompt: str) -> str:
         """Совместимость с интерфейсом других провайдеров (G4F, Ollama)."""
         return self.generate(prompt)
 
 # === G4F (бесплатные модели) ===
-try:
-    from g4f.client import Client
-    from g4f.Provider import Bing
-except ImportError:
-    Client = None
-    Bing = None
-=======
->>>>>>> 2cb7979ba3681a196bd56d79cb1959ad9b04920c
-
 class G4FClient:
     def __init__(self, model: str = "gpt-4o-mini", provider=None):
         self.client = Client()
-        # Используем Bing как провайдер без ключей
         self.model = model
 
     def invoke(self, prompt: str) -> str:
@@ -70,4 +59,4 @@ def get_llm_client(use_yandex: bool = False):
     if use_yandex:
         return YandexGPTClient()
     else:
-        return None  # для локальной модели используется прямой HTTP-запрос
+        return None
