@@ -45,6 +45,16 @@ except Exception as e:
     st.error(f"Ошибка импорта: {e}")
     st.stop()
 
+# === RAG (база знаний) ===
+try:
+    from src.rag.retriever import SimpleRAG
+    RAG_AVAILABLE = True
+    print("✅ RAG-модуль загружен")
+except ImportError:
+    RAG_AVAILABLE = False
+    SimpleRAG = None
+    print("⚠️ RAG-модуль недоступен. Установите зависимости: sentence-transformers, faiss-cpu, langchain-text-splitters, pypdf")
+
 # === ОПЦИОНАЛЬНЫЕ МОДУЛИ (PDF, OCR, Excel) ===
 try:
     from PIL import Image
@@ -361,6 +371,8 @@ if 'source' not in st.session_state:
     st.session_state.source = ''
 if 'roadmap' not in st.session_state:
     st.session_state.roadmap = {}
+if 'rag' not in st.session_state:
+    st.session_state.rag = None
 
 print("✅ session_state инициализирован")
 
@@ -430,6 +442,53 @@ with st.sidebar:
         value=st.session_state.enable_search,
         key="enable_search_check"
     )
+
+    # === БАЗА ЗНАНИЙ (RAG) ===
+    st.subheader("📚 База знаний")
+
+    # Инициализация RAG, если ещё не создан
+    if st.session_state.rag is None and RAG_AVAILABLE and SimpleRAG is not None:
+        st.session_state.rag = SimpleRAG()
+
+    if st.session_state.rag is None:
+        st.warning("RAG-модуль недоступен. Установите зависимости: sentence-transformers, faiss-cpu, langchain-text-splitters, pypdf")
+    else:
+        # Загрузка файлов
+        uploaded_docs = st.file_uploader(
+            "Загрузите документы (PDF, TXT)",
+            type=["pdf", "txt"],
+            accept_multiple_files=True,
+            key="rag_file_uploader"
+        )
+
+        if uploaded_docs:
+            if st.button("📥 Обработать документы", key="process_docs_btn"):
+                with st.spinner("Загрузка и векторизация документов..."):
+                    import tempfile
+                    docs_processed = 0
+                    for file in uploaded_docs:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.name}") as tmp_file:
+                            tmp_file.write(file.getbuffer())
+                            temp_path = tmp_file.name
+                        try:
+                            st.session_state.rag.load_from_file(temp_path)
+                            docs_processed += 1
+                        except Exception as e:
+                            st.error(f"Ошибка обработки {file.name}: {e}")
+                        finally:
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
+                    if docs_processed > 0:
+                        st.success(f"✅ Обработано {docs_processed} документ(ов)")
+
+        # Статус индекса
+        if hasattr(st.session_state.rag, 'vectorstore') and st.session_state.rag.vectorstore is not None:
+            st.info(f"📊 Индекс содержит {st.session_state.rag.vectorstore.index.ntotal} фрагментов")
+            if st.button("🗑️ Очистить базу знаний", key="clear_rag_btn"):
+                st.session_state.rag.vectorstore = None
+                st.rerun()
+        else:
+            st.caption("База знаний пуста. Загрузите документы для обогащения контекста.")
 
     # --- Метаданные ---
     st.subheader("📌 Метаданные")

@@ -3,7 +3,7 @@ import json
 import time
 import requests
 from typing import List, Dict, Optional
-from src.llm.client import get_llm_client
+from src.llm.client import get_llm_client, G4FClient
 
 class HypothesisDeliberation:
     def __init__(
@@ -29,12 +29,8 @@ class HypothesisDeliberation:
         elif provider == "ollama":
             self.llm = None  # прямой HTTP-запрос
         elif provider == "g4f":
-            try:
-                from src.llm.client import G4FClient
-                # Используем провайдер Bing, чтобы избежать ошибок с har_and_cookies
-                self.llm = G4FClient(model=self.model_name, provider="bing")
-            except ImportError:
-                raise RuntimeError("G4F не установлен. Установите: pip install g4f")
+            # Используем провайдер Bing, чтобы избежать ошибок с har_and_cookies
+            self.llm = G4FClient(model=self.model_name, provider="bing")
         else:
             raise ValueError(f"Неподдерживаемый провайдер: {provider}")
 
@@ -95,7 +91,6 @@ class HypothesisDeliberation:
                 print(f"⚠️ Ошибка поиска: {e}")
 
         # 2. Формирование промпта с учётом языка
-        # Языковая инструкция (дважды для надёжности)
         if language == 'ru':
             lang_instruction = "Важно: весь твой ответ, включая все поля JSON, должен быть на РУССКОМ языке."
         elif language == 'zh':
