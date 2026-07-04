@@ -13,7 +13,6 @@ from src.ranking.scorer import rank_hypotheses
 load_dotenv()
 
 def main():
-    # --- Входные данные ---
     kpi = "Increase creep resistance of nickel-based superalloy by 20% at 700°C"
     constraints = "No rhenium, budget < $500k, scalable to industrial production"
     
@@ -26,7 +25,6 @@ def main():
     Grain boundary engineering through thermomechanical processing improves durability.
     """
     
-    # --- 1. Извлечение сущностей и построение графа ---
     extractor = EntityExtractor()
     analysis = extractor.process_document(literature)
     
@@ -41,15 +39,14 @@ def main():
     print(graph_context)
     print("\n")
     
-    # --- 2. Запуск совещания (с Yandex) ---
-    delib = HypothesisDeliberation(use_yandex=True)
+    # Используем локальную модель с fallback на Yandex
+    delib = HypothesisDeliberation(use_yandex=False, model_name="llama3.1:8b", timeout=45)
     full_context = graph_context + "\nLiterature insights: Niobium forms carbides; two-step aging improves properties."
     
-    print("Starting deliberation with Yandex GPT...")
+    print("Starting generation...")
     hypotheses = delib.run(kpi, constraints, full_context, max_rounds=2)
     
-    # --- 3. Ранжирование ---
-    # Добавляем числовые значения, если их нет
+    # Ранжирование (добавляем значения по умолчанию)
     for hyp in hypotheses:
         if 'novelty' not in hyp:
             hyp['novelty'] = 0.7
@@ -57,13 +54,10 @@ def main():
             hyp['impact'] = 0.6
         if 'risk' not in hyp:
             hyp['risk'] = 0.3
-        # Преобразуем риск в число, если строка
         if isinstance(hyp.get('risk'), str):
             risk_map = {'low': 0.2, 'medium': 0.5, 'high': 0.8}
             hyp['risk'] = risk_map.get(hyp['risk'].lower(), 0.5)
-        # Преобразуем impact в число
         if isinstance(hyp.get('impact'), str):
-            # Пытаемся извлечь число из строки
             import re
             nums = re.findall(r'\d+', hyp['impact'])
             if nums:
@@ -71,12 +65,10 @@ def main():
             else:
                 hyp['impact'] = 0.6
         if isinstance(hyp.get('novelty'), str):
-            # грубо
             hyp['novelty'] = 0.7 if 'novel' in hyp['novelty'].lower() else 0.5
     
     ranked = rank_hypotheses(hypotheses)
     
-    # --- 4. Вывод ---
     print("\n=== RANKED HYPOTHESES ===\n")
     for i, hyp in enumerate(ranked, 1):
         print(f"--- Hypothesis {i} (Score: {hyp.get('score', 'N/A')}) ---")
@@ -84,9 +76,10 @@ def main():
         print(f"Mechanism: {hyp.get('mechanism', 'N/A')}")
         print(f"Novelty: {hyp.get('novelty', 'N/A')}")
         print(f"Risk: {hyp.get('risk', 'N/A')}")
-        print(f"Impact: {hyp.get('impact', 'N/A')}\n")
+        print(f"Impact: {hyp.get('impact', 'N/A')}")
+        print(f"Sources: {', '.join(hyp.get('sources', ['не указаны']))}")
+        print(f"Generation time: {hyp.get('generation_time', 'N/A')} sec\n")
     
-    # --- 5. Сохранение ---
     output = {
         "kpi": kpi,
         "constraints": constraints,

@@ -1,0 +1,34 @@
+import os
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class YandexGPTClient:
+    def __init__(self):
+        self.api_key = os.getenv("YANDEX_API_KEY")
+        self.folder_id = os.getenv("YANDEX_FOLDER_ID")
+        if not self.api_key or not self.folder_id:
+            raise ValueError("YANDEX_API_KEY и YANDEX_FOLDER_ID должны быть заданы в .env")
+        self.url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    
+    def generate(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000) -> str:
+        headers = {
+            "Authorization": f"Api-Key {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "modelUri": f"gpt://{self.folder_id}/yandexgpt/latest",
+            "completionOptions": {"temperature": temperature, "maxTokens": max_tokens},
+            "messages": [{"role": "user", "text": prompt}]
+        }
+        response = requests.post(self.url, headers=headers, json=data)
+        response.raise_for_status()
+        return response.json()["result"]["alternatives"][0]["message"]["text"]
+
+def get_llm_client(use_yandex: bool = False):
+    if use_yandex:
+        return YandexGPTClient()
+    else:
+        # Локальный клиент (можно вернуть None или выбросить исключение)
+        return None
