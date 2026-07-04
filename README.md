@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-red)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-
+демо работа прототипа https://disk.yandex.ru/i/56Lti7c3CjTn-A
 ---
 
 ## 📖 Оглавление
@@ -275,7 +275,7 @@ echo "YANDEX_API_KEY=ваш_ключ" > .env
 echo "YANDEX_FOLDER_ID=ваш_folder_id" >> .env
 ```
 
-**Где взять ключи?** Зарегистрируйтесь в [Yandex Cloud](https://console.cloud.yandex.ru/), создайте сервисный аккаунт с ролью `ai.languageModels.user` и сгенерируйте API-ключ.
+**Где взять ключи?** Для тех у кого есть доступ к нашему яндекс диску ключи лежат в на нём в файле Ключи, если нет Зарегистрируйтесь в [Yandex Cloud](https://console.cloud.yandex.ru/), создайте сервисный аккаунт с ролью `ai.languageModels.user` и сгенерируйте API-ключ.
 
 ---
 
@@ -365,8 +365,8 @@ streamlit run app.py --server.port 8502
 **Лицензия:** MIT  
 **Авторы:** Команда «Фабрика гипотез»  
 **GitHub:** [https://github.com/Anfihal/hypothesis-engine](https://github.com/Anfihal/hypothesis-engine)  
-**Демо-видео:** [ссылка на видео]  
-**Архив с исходным кодом:** [ссылка на облачный диск]
+**Демо-видео:** [[ссылка на видео]](https://disk.yandex.ru/i/56Lti7c3CjTn-A)  
+**Архив с исходным кодом:** [[ссылка на облачный диск](https://github.com/Anfihal/hypothesis-engine/invitations)]
 
 ---
 
