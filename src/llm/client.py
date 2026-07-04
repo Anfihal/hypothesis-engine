@@ -1,6 +1,7 @@
 import os
 import requests
 from dotenv import load_dotenv
+from g4f.client import Client
 
 load_dotenv()
 
@@ -27,6 +28,7 @@ class YandexGPTClient:
         response.raise_for_status()
         return response.json()["result"]["alternatives"][0]["message"]["text"]
 
+<<<<<<< HEAD
     # === ДОБАВЛЯЕМ МЕТОД invoke ДЛЯ СОВМЕСТИМОСТИ ===
     def invoke(self, prompt: str) -> str:
         """Совместимость с интерфейсом других провайдеров (G4F, Ollama)."""
@@ -39,13 +41,13 @@ try:
 except ImportError:
     Client = None
     Bing = None
+=======
+>>>>>>> 2cb7979ba3681a196bd56d79cb1959ad9b04920c
 
 class G4FClient:
     def __init__(self, model: str = "gpt-4o-mini", provider=None):
-        if Client is None or Bing is None:
-            raise ImportError("G4F не установлен. Установите: pip install g4f")
+        self.client = Client()
         # Используем Bing как провайдер без ключей
-        self.client = Client(provider=Bing if provider == "bing" else None)
         self.model = model
 
     def invoke(self, prompt: str) -> str:
