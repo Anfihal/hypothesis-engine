@@ -27,11 +27,12 @@ class HypothesisDeliberation:
         if provider == "yandex":
             self.llm = get_llm_client(use_yandex=True)
         elif provider == "ollama":
-            self.llm = None  # будем использовать прямой HTTP
+            self.llm = None  # прямой HTTP-запрос
         elif provider == "g4f":
             try:
                 from src.llm.client import G4FClient
-                self.llm = G4FClient(model=self.model_name)
+                # Используем провайдер Bing, чтобы избежать ошибок с har_and_cookies
+                self.llm = G4FClient(model=self.model_name, provider="bing")
             except ImportError:
                 raise RuntimeError("G4F не установлен. Установите: pip install g4f")
         else:
@@ -77,6 +78,7 @@ class HypothesisDeliberation:
         enhanced_context = context
         self.last_search_results = []
 
+        # 1. Поиск
         if self.enable_search and self.search_manager:
             try:
                 search_query = f"{kpi} materials science"
@@ -92,15 +94,18 @@ class HypothesisDeliberation:
             except Exception as e:
                 print(f"⚠️ Ошибка поиска: {e}")
 
-        lang_instructions = {
-            'en': "Answer in English.",
-            'ru': "Ответь на русском языке.",
-            'zh': "请用中文回答。"
-        }
-        lang_prompt = lang_instructions.get(language, "Answer in English.")
+        # 2. Формирование промпта с учётом языка
+        # Языковая инструкция (дважды для надёжности)
+        if language == 'ru':
+            lang_instruction = "Важно: весь твой ответ, включая все поля JSON, должен быть на РУССКОМ языке."
+        elif language == 'zh':
+            lang_instruction = "重要：你的整个回答，包括所有 JSON 字段，都必须用中文。"
+        else:
+            lang_instruction = "Important: your entire response, including all JSON fields, must be in ENGLISH."
 
         prompt = f"""
-You are a materials scientist. {lang_prompt}
+You are a materials scientist. {lang_instruction}
+
 Given the following KPI, constraints, and knowledge context (including web search results if provided):
 KPI: {kpi}
 Constraints: {constraints}
@@ -112,17 +117,21 @@ Generate 3 specific, testable hypotheses in JSON format. Each hypothesis must ha
 - novelty (what makes it new compared to existing knowledge)
 - risk (low/medium/high)
 - impact (expected effect on KPI in % or qualitative)
-- sources (list of specific phrases, facts, or URLs from the context that support this hypothesis)
+- sources (list of specific phrases, facts, or URLs from the context that support this hypothesis; if the context contains URLs, include them here as full links)
 - explanation (detailed reasoning for why this hypothesis is plausible)
 - recommendation (brief recommendation on how to test or implement this hypothesis)
 
+{lang_instruction}
+
 Output only a JSON array.
 """
+        # 3. Вызов модели
         start_time = time.time()
         response = self._call_llm(prompt)
         elapsed = time.time() - start_time
         print(f"⏱️ Время ответа: {elapsed:.1f} сек")
 
+        # 4. Парсинг JSON
         try:
             json_str = re.search(r'\[.*\]', response, re.DOTALL).group()
             hypotheses = json.loads(json_str)
@@ -141,6 +150,7 @@ Output only a JSON array.
                 "recommendation": ""
             }]
 
+        # 5. Метаданные
         for h in hypotheses:
             h['generation_time'] = round(elapsed, 1)
             h.setdefault('sources', [])

@@ -5,6 +5,7 @@ import sys
 import tempfile
 import re
 from datetime import datetime
+from io import BytesIO
 
 # === ЛОГИРОВАНИЕ ===
 print("🚀 Загрузка приложения...")
@@ -44,7 +45,7 @@ except Exception as e:
     st.error(f"Ошибка импорта: {e}")
     st.stop()
 
-# === ОПЦИОНАЛЬНЫЕ МОДУЛИ (PDF, OCR) ===
+# === ОПЦИОНАЛЬНЫЕ МОДУЛИ (PDF, OCR, Excel) ===
 try:
     from PIL import Image
     import pytesseract
@@ -67,6 +68,23 @@ try:
 except ImportError:
     convert_from_path = None
     print("⚠️ pdf2image не установлен")
+
+try:
+    import pandas as pd
+    print("✅ pandas")
+except ImportError:
+    pd = None
+    print("⚠️ pandas не установлен")
+
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import mm
+    print("✅ reportlab")
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+    print("⚠️ reportlab не установлен. PDF-экспорт будет недоступен.")
 
 # === КЕШИРОВАННЫЕ ФУНКЦИИ ===
 @st.cache_data(show_spinner=False)
@@ -116,6 +134,57 @@ def cached_extract_text_from_pdf_ocr(file_bytes, poppler_path=None):
     except Exception:
         return None
 
+# === ФУНКЦИЯ ГЕНЕРАЦИИ PDF-ОТЧЁТА ===
+def generate_pdf_report(hypotheses, kpi, constraints, lang):
+    if not REPORTLAB_AVAILABLE:
+        return None
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 20*mm
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(20*mm, y, f"{TEXTS[lang]['title']}")
+    y -= 10*mm
+    c.setFont("Helvetica", 12)
+    c.drawString(20*mm, y, f"{TEXTS[lang]['kpi']}: {kpi}")
+    y -= 7*mm
+    c.drawString(20*mm, y, f"{TEXTS[lang]['constraints']}: {constraints}")
+    y -= 10*mm
+
+    for i, hyp in enumerate(hypotheses, 1):
+        if y < 50*mm:
+            c.showPage()
+            y = height - 20*mm
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(20*mm, y, f"{TEXTS[lang]['statement']} {i} (Score: {hyp.get('score', 0):.2f})")
+        y -= 7*mm
+        c.setFont("Helvetica", 11)
+        c.drawString(25*mm, y, f"{TEXTS[lang]['statement']}: {hyp.get('statement', 'N/A')}")
+        y -= 6*mm
+        c.drawString(25*mm, y, f"{TEXTS[lang]['mechanism']}: {hyp.get('mechanism', 'N/A')}")
+        y -= 6*mm
+        c.drawString(25*mm, y, f"{TEXTS[lang]['novelty']}: {hyp.get('novelty', 0):.2f}")
+        y -= 6*mm
+        c.drawString(25*mm, y, f"{TEXTS[lang]['risk']}: {hyp.get('risk', 0):.2f}")
+        y -= 6*mm
+        c.drawString(25*mm, y, f"{TEXTS[lang]['impact']}: {hyp.get('impact', 0):.2f}")
+        y -= 6*mm
+        sources = hyp.get('sources', [])
+        if sources:
+            c.drawString(25*mm, y, f"{TEXTS[lang]['sources_label']}: {', '.join([str(s) for s in sources[:3]])}")
+            y -= 6*mm
+        c.drawString(25*mm, y, f"{TEXTS[lang]['explanation']}: {hyp.get('explanation', 'N/A')[:200]}...")
+        y -= 6*mm
+        c.drawString(25*mm, y, f"{TEXTS[lang]['recommendation']}: {hyp.get('recommendation', 'N/A')}")
+        y -= 10*mm
+        if i < len(hypotheses):
+            c.line(20*mm, y, width-20*mm, y)
+            y -= 5*mm
+
+    c.save()
+    buffer.seek(0)
+    return buffer
+
 # === МУЛЬТИЯЗЫЧНЫЕ ТЕКСТЫ ===
 TEXTS = {
     'en': {
@@ -129,7 +198,7 @@ TEXTS = {
         'lang': "Language",
         'sources': "Knowledge Sources",
         'text_input': "Paste text or edit the example:",
-        'upload': "Upload additional files (txt, pdf, png, jpg)",
+        'upload': "Upload additional files (txt, pdf, png, jpg, xlsx, csv)",
         'generate': "🚀 Generate Hypotheses",
         'results': "📊 Results",
         'graph': "🕸️ Knowledge Graph",
@@ -145,12 +214,17 @@ TEXTS = {
         'time': "Generation time",
         'export_json': "📥 Download JSON",
         'export_txt': "📄 Download TXT",
+        'export_pdf': "📄 Download PDF",
         'success': "✅ Generated {count} hypotheses!",
         'error_no_text': "Please enter or upload literature text.",
         'error_general': "❌ Error: {error}",
         'empty_graph': "Graph is empty.",
         'not_specified': "not specified",
         'enable_search': "🔍 Enable internet search",
+        'roadmap': "🗺️ Verification roadmap",
+        'feedback_like': "👍 Useful",
+        'feedback_dislike': "👎 Not useful",
+        'feedback_thanks': "Thank you for your feedback!",
         'example': """The addition of 0.5% niobium to Inconel 718 significantly increases yield strength at elevated temperatures.
 Previous studies show that niobium forms stable carbides which hinder dislocation motion.
 However, excess niobium may cause embrittlement due to phase precipitation.
@@ -169,7 +243,7 @@ Grain boundary engineering through thermomechanical processing improves durabili
         'lang': "Язык",
         'sources': "Источники знаний",
         'text_input': "Вставьте текст или отредактируйте пример:",
-        'upload': "Загрузите дополнительные файлы (txt, pdf, png, jpg)",
+        'upload': "Загрузите дополнительные файлы (txt, pdf, png, jpg, xlsx, csv)",
         'generate': "🚀 Сгенерировать гипотезы",
         'results': "📊 Результаты",
         'graph': "🕸️ Граф знаний",
@@ -185,12 +259,17 @@ Grain boundary engineering through thermomechanical processing improves durabili
         'time': "Время генерации",
         'export_json': "📥 Скачать JSON",
         'export_txt': "📄 Скачать TXT",
+        'export_pdf': "📄 Скачать PDF",
         'success': "✅ Сгенерировано {count} гипотез!",
         'error_no_text': "Пожалуйста, введите или загрузите текст литературы.",
         'error_general': "❌ Ошибка: {error}",
         'empty_graph': "Граф пуст.",
         'not_specified': "не указаны",
         'enable_search': "🔍 Включить поиск в интернете",
+        'roadmap': "🗺️ Дорожная карта проверки",
+        'feedback_like': "👍 Полезно",
+        'feedback_dislike': "👎 Неполезно",
+        'feedback_thanks': "Спасибо за отзыв!",
         'example': """Добавление 0.5% ниобия в сплав Inconel 718 значительно повышает предел текучести при повышенных температурах.
 Предыдущие исследования показывают, что ниобий образует стабильные карбиды, которые препятствуют движению дислокаций.
 Однако избыток ниобия может вызвать охрупчивание из-за выделения фаз.
@@ -209,7 +288,7 @@ Grain boundary engineering through thermomechanical processing improves durabili
         'lang': "语言",
         'sources': "知识来源",
         'text_input': "粘贴文本或编辑示例：",
-        'upload': "上传附加文件 (txt, pdf, png, jpg)",
+        'upload': "上传附加文件 (txt, pdf, png, jpg, xlsx, csv)",
         'generate': "🚀 生成假设",
         'results': "📊 结果",
         'graph': "🕸️ 知识图谱",
@@ -225,12 +304,17 @@ Grain boundary engineering through thermomechanical processing improves durabili
         'time': "生成时间",
         'export_json': "📥 下载 JSON",
         'export_txt': "📄 下载 TXT",
+        'export_pdf': "📄 下载 PDF",
         'success': "✅ 已生成 {count} 个假设！",
         'error_no_text': "请输入或上传文献文本。",
         'error_general': "❌ 错误：{error}",
         'empty_graph': "图谱为空。",
         'not_specified': "未指定",
         'enable_search': "🔍 启用互联网搜索",
+        'roadmap': "🗺️ 验证路线图",
+        'feedback_like': "👍 有用",
+        'feedback_dislike': "👎 没用",
+        'feedback_thanks': "感谢您的反馈！",
         'example': """在Inconel 718中添加0.5%的铌可显著提高高温下的屈服强度。
 先前的研究表明，铌形成稳定的碳化物，阻碍位错运动。
 然而，过量的铌可能因相析出而导致脆化。
@@ -263,6 +347,20 @@ if 'hypotheses' not in st.session_state:
     st.session_state.hypotheses = None
 if 'kg' not in st.session_state:
     st.session_state.kg = None
+if 'last_search_results' not in st.session_state:
+    st.session_state.last_search_results = []
+if 'weights' not in st.session_state:
+    st.session_state.weights = {'novelty': 0.3, 'impact': 0.4, 'risk': 0.3}
+if 'feedback' not in st.session_state:
+    st.session_state.feedback = {}
+if 'authors' not in st.session_state:
+    st.session_state.authors = ''
+if 'publication_date' not in st.session_state:
+    st.session_state.publication_date = None
+if 'source' not in st.session_state:
+    st.session_state.source = ''
+if 'roadmap' not in st.session_state:
+    st.session_state.roadmap = {}
 
 print("✅ session_state инициализирован")
 
@@ -332,6 +430,67 @@ with st.sidebar:
         value=st.session_state.enable_search,
         key="enable_search_check"
     )
+
+    # --- Метаданные ---
+    st.subheader("📌 Метаданные")
+    st.session_state.authors = st.text_input("Авторы (через запятую)", value=st.session_state.authors, key="authors_input")
+    st.session_state.publication_date = st.date_input("Дата публикации", value=st.session_state.publication_date, key="pub_date_input")
+    st.session_state.source = st.text_input("Источник (журнал/конференция)", value=st.session_state.source, key="source_input")
+
+    # --- Настройка весов для ранжирования ---
+    st.subheader("⚙️ Настройка ранжирования")
+    weight_novelty = st.slider(
+        "Вес новизны",
+        min_value=0.0, max_value=1.0, value=st.session_state.weights.get('novelty', 0.3), step=0.05,
+        key="weight_novelty"
+    )
+    weight_impact = st.slider(
+        "Вес потенциального эффекта",
+        min_value=0.0, max_value=1.0, value=st.session_state.weights.get('impact', 0.4), step=0.05,
+        key="weight_impact"
+    )
+    weight_risk = st.slider(
+        "Вес риска (чем выше, тем больше штраф за риск)",
+        min_value=0.0, max_value=1.0, value=st.session_state.weights.get('risk', 0.3), step=0.05,
+        key="weight_risk"
+    )
+    # Нормализация
+    total_w = weight_novelty + weight_impact + weight_risk
+    if total_w > 0:
+        st.session_state.weights = {
+            'novelty': weight_novelty / total_w,
+            'impact': weight_impact / total_w,
+            'risk': weight_risk / total_w
+        }
+    else:
+        st.session_state.weights = {'novelty': 0.3, 'impact': 0.4, 'risk': 0.3}
+
+    # --- Применить фидбэк ---
+    if st.button("📊 Применить фидбэк для корректировки весов"):
+        feedback = st.session_state.get('feedback', {})
+        if feedback:
+            likes = sum(1 for v in feedback.values() if v == "like")
+            dislikes = sum(1 for v in feedback.values() if v == "dislike")
+            total = likes + dislikes
+            if total > 0:
+                ratio = likes / total
+                current_impact = st.session_state.weights.get('impact', 0.4)
+                new_impact = current_impact + (ratio - 0.5) * 0.2
+                new_impact = max(0.1, min(0.8, new_impact))
+                novelty = st.session_state.weights.get('novelty', 0.3)
+                risk = st.session_state.weights.get('risk', 0.3)
+                total_w = novelty + new_impact + risk
+                st.session_state.weights = {
+                    'novelty': novelty / total_w,
+                    'impact': new_impact / total_w,
+                    'risk': risk / total_w
+                }
+                st.success("Весы обновлены на основе фидбэка!")
+            else:
+                st.warning("Нет достаточно фидбэка.")
+        else:
+            st.warning("Нет сохранённого фидбэка.")
+
     st.caption("По умолчанию локальная модель. Для g4f нужен интернет, для yandex – ключи в .env. Поиск через DuckDuckGo (без ключей).")
 
 # --- Основная область ---
@@ -350,7 +509,7 @@ st.session_state.literature = st.text_area(
 
 uploaded_files = st.file_uploader(
     t['upload'],
-    type=["txt", "pdf", "png", "jpg", "jpeg"],
+    type=["txt", "pdf", "png", "jpg", "jpeg", "xlsx", "xls", "csv"],
     accept_multiple_files=True,
     key="file_uploader"
 )
@@ -389,13 +548,36 @@ if uploaded_files:
                 st.success(f"Распознан текст из изображения {file.name}")
             else:
                 st.warning(f"Не удалось распознать текст из {file.name}")
+        elif ext in ["xlsx", "xls", "csv"]:
+            if pd is None:
+                st.warning("pandas не установлен, обработка таблиц недоступна")
+            else:
+                try:
+                    if ext == "csv":
+                        df = pd.read_csv(BytesIO(file_bytes))
+                    else:
+                        df = pd.read_excel(BytesIO(file_bytes), engine='openpyxl')
+                    text_parts = []
+                    for col in df.columns:
+                        values = df[col].dropna().astype(str).tolist()
+                        if values:
+                            text_parts.append(f"{col}: {', '.join(values)}")
+                    if text_parts:
+                        structured_text = "Структурированные данные из файла:\n" + "\n".join(text_parts)
+                        st.session_state.literature += "\n\n" + structured_text
+                        st.session_state.literature_edited = True
+                        st.success(f"Добавлены данные из {file.name}")
+                    else:
+                        st.warning(f"Файл {file.name} не содержит данных.")
+                except Exception as e:
+                    st.error(f"Ошибка чтения {file.name}: {e}")
 
 # --- Кнопка генерации ---
 if st.button(t['generate'], type="primary"):
     if not st.session_state.literature.strip():
         st.error(t['error_no_text'])
     else:
-        with st.spinner("Идёт генерация гипотез... (может занять 1–3 минуты)"):
+        with st.spinner("Идёт генерация гипотез... (может занять от 15 до 45 секунд, в случае большой загруженности до 3-5 минут)"):
             try:
                 extractor = EntityExtractor()
                 analysis = extractor.process_document(st.session_state.literature)
@@ -449,10 +631,10 @@ if st.button(t['generate'], type="primary"):
                     hyp.setdefault('explanation', '')
                     hyp.setdefault('recommendation', '')
 
-                ranked = rank_hypotheses(hypotheses)
+                ranked = rank_hypotheses(hypotheses, weights=st.session_state.weights)
                 st.session_state.hypotheses = ranked
                 st.session_state.kg = kg
-                st.session_state.last_search_results = delib.last_search_results if hasattr(delib, 'last_search_results') else []
+                st.session_state.last_search_results = getattr(delib, 'last_search_results', [])
                 st.success(t['success'].format(count=len(ranked)))
 
             except Exception as e:
@@ -464,6 +646,7 @@ if st.session_state.hypotheses is not None:
     st.markdown("---")
     st.header(t['results'])
 
+    # Граф знаний
     if st.session_state.kg is not None:
         with st.expander(t['graph'], expanded=False):
             kg = st.session_state.kg
@@ -479,15 +662,15 @@ if st.session_state.hypotheses is not None:
                         net.save_graph(tmp.name)
                         with open(tmp.name, 'r', encoding='utf-8') as f:
                             html = f.read()
-                        st.components.v1.html(html, height=450)
+                        st.iframe(html, height=450)
                     os.unlink(tmp.name)
                 except Exception as e:
                     st.warning(f"Не удалось отобразить граф: {e}")
             else:
                 st.info(t['empty_graph'])
 
-    # Отображение найденных источников (если есть)
-    if hasattr(st.session_state, 'last_search_results') and st.session_state.last_search_results:
+    # Отображение найденных источников
+    if st.session_state.last_search_results:
         st.subheader("🌐 Найденные источники")
         for res in st.session_state.last_search_results[:8]:
             with st.expander(f"📄 {res.get('title', 'Без названия')}"):
@@ -497,7 +680,7 @@ if st.session_state.hypotheses is not None:
                 if res.get('url'):
                     st.markdown(f"**Ссылка:** [{res['url']}]({res['url']})")
 
-    # Гипотезы
+    # Вывод гипотез в цикле
     hypotheses = st.session_state.hypotheses
     for i, hyp in enumerate(hypotheses, 1):
         score = hyp.get('score', 0)
@@ -509,26 +692,87 @@ if st.session_state.hypotheses is not None:
             st.markdown(f"**{t['novelty']}:** {hyp.get('novelty', 0):.2f}")
             st.markdown(f"**{t['risk']}:** {hyp.get('risk', 0):.2f}")
             st.markdown(f"**{t['impact']}:** {hyp.get('impact', 0):.2f}")
+
+            # Источники со ссылками
             sources = hyp.get('sources', [])
             if sources:
-                # Отображаем источники с возможными ссылками
                 sources_display = []
                 for src in sources:
-                    if src.startswith('http'):
+                    if isinstance(src, dict):
+                        if 'url' in src:
+                            src = src['url']
+                        elif 'text' in src:
+                            src = src['text']
+                        else:
+                            for val in src.values():
+                                if isinstance(val, str):
+                                    src = val
+                                    break
+                            else:
+                                src = str(src)
+                    if isinstance(src, str) and src.startswith('http'):
                         sources_display.append(f"[{src}]({src})")
                     else:
-                        sources_display.append(src)
+                        sources_display.append(str(src))
                 st.markdown(f"**{t['sources_label']}:** {', '.join(sources_display)}")
             else:
                 st.markdown(f"**{t['sources_label']}:** {t['not_specified']}")
+
             st.markdown(f"**{t['explanation']}:** {hyp.get('explanation', 'N/A')}")
             st.markdown(f"**{t['recommendation']}:** {hyp.get('recommendation', 'N/A')}")
+
+            # --- Дорожная карта (интерактивная) ---
+            st.markdown(f"**{t['roadmap']}:**")
+            roadmap_key = f"roadmap_{i}"
+            if roadmap_key not in st.session_state:
+                st.session_state[roadmap_key] = [
+                    "1. Подготовка образцов с заданным составом (контроль и модификация).",
+                    "2. Проведение испытаний при заданных условиях (температура, нагрузка).",
+                    "3. Микроструктурный анализ (SEM/TEM) для выявления механизма.",
+                    "4. Сравнение результатов с базовыми данными, оценка достижения KPI.",
+                    "5. При успехе – масштабирование и дополнительная валидация."
+                ]
+            new_steps = []
+            for idx, step in enumerate(st.session_state[roadmap_key]):
+                new_step = st.text_input(
+                    f"Шаг {idx+1}",
+                    value=step,
+                    key=f"roadmap_step_{i}_{idx}"
+                )
+                new_steps.append(new_step)
+            if st.button(f"➕ Добавить шаг", key=f"add_step_{i}"):
+                new_steps.append("Новый шаг")
+                st.session_state[roadmap_key] = new_steps
+                st.rerun()
+            st.session_state[roadmap_key] = new_steps
+            if st.button(f"🔄 Сбросить шаги", key=f"reset_roadmap_{i}"):
+                st.session_state[roadmap_key] = [
+                    "1. Подготовка образцов с заданным составом (контроль и модификация).",
+                    "2. Проведение испытаний при заданных условиях (температура, нагрузка).",
+                    "3. Микроструктурный анализ (SEM/TEM) для выявления механизма.",
+                    "4. Сравнение результатов с базовыми данными, оценка достижения KPI.",
+                    "5. При успехе – масштабирование и дополнительная валидация."
+                ]
+                st.rerun()
+
+            # --- Обратная связь ---
+            col_fb1, col_fb2 = st.columns(2)
+            with col_fb1:
+                if st.button(f"{t['feedback_like']}", key=f"like_{i}"):
+                    st.session_state.feedback[f"hyp_{i}"] = "like"
+                    st.success(t['feedback_thanks'])
+            with col_fb2:
+                if st.button(f"{t['feedback_dislike']}", key=f"dislike_{i}"):
+                    st.session_state.feedback[f"hyp_{i}"] = "dislike"
+                    st.success(t['feedback_thanks'])
+
             if hyp.get('generation_time'):
                 st.caption(f"⏱️ {t['time']}: {hyp['generation_time']} сек")
             st.markdown("---")
 
     # Экспорт
-    col1, col2 = st.columns(2)
+    st.subheader("📤 Экспорт результатов")
+    col1, col2, col3 = st.columns(3)
     with col1:
         if st.button(t['export_json']):
             output = {
@@ -536,7 +780,16 @@ if st.session_state.hypotheses is not None:
                 "constraints": st.session_state.constraints,
                 "language": lang,
                 "timestamp": datetime.now().isoformat(),
-                "hypotheses": hypotheses
+                "authors": st.session_state.authors,
+                "publication_date": str(st.session_state.publication_date) if st.session_state.publication_date else "",
+                "source": st.session_state.source,
+                "hypotheses": [
+                    {
+                        **hyp,
+                        "roadmap": st.session_state.get(f"roadmap_{i}", [])
+                    }
+                    for i, hyp in enumerate(hypotheses, 1)
+                ]
             }
             json_str = json.dumps(output, indent=2, ensure_ascii=False)
             st.download_button(
@@ -550,7 +803,10 @@ if st.session_state.hypotheses is not None:
             report = f"=== {t['title']} ===\n"
             report += f"{t['kpi']}: {st.session_state.kpi}\n"
             report += f"{t['constraints']}: {st.session_state.constraints}\n"
-            report += f"Language: {lang}\n\n"
+            report += f"Language: {lang}\n"
+            report += f"Authors: {st.session_state.authors}\n"
+            report += f"Publication date: {st.session_state.publication_date}\n"
+            report += f"Source: {st.session_state.source}\n\n"
             for i, hyp in enumerate(hypotheses, 1):
                 report += f"{t['statement']} {i} ({t['score']}: {hyp.get('score', 0):.2f})\n"
                 report += f"  {t['statement']}: {hyp.get('statement', 'N/A')}\n"
@@ -563,6 +819,11 @@ if st.session_state.hypotheses is not None:
                     report += f"  {t['sources_label']}: {', '.join(sources)}\n"
                 report += f"  {t['explanation']}: {hyp.get('explanation', 'N/A')}\n"
                 report += f"  {t['recommendation']}: {hyp.get('recommendation', 'N/A')}\n"
+                roadmap = st.session_state.get(f"roadmap_{i}", [])
+                if roadmap:
+                    report += f"  Дорожная карта:\n"
+                    for step in roadmap:
+                        report += f"    - {step}\n"
                 report += f"  {t['time']}: {hyp.get('generation_time', 'N/A')} сек\n\n"
             st.download_button(
                 label="Скачать TXT",
@@ -570,5 +831,20 @@ if st.session_state.hypotheses is not None:
                 file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                 mime="text/plain"
             )
+    with col3:
+        if st.button(t['export_pdf']):
+            if not REPORTLAB_AVAILABLE:
+                st.error("Библиотека reportlab не установлена. Установите: pip install reportlab")
+            else:
+                pdf_buffer = generate_pdf_report(hypotheses, st.session_state.kpi, st.session_state.constraints, lang)
+                if pdf_buffer:
+                    st.download_button(
+                        label="Скачать PDF",
+                        data=pdf_buffer,
+                        file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime="application/pdf"
+                    )
+                else:
+                    st.error("Не удалось сгенерировать PDF-отчёт.")
 
 print("✅ Приложение успешно загружено")

@@ -5,11 +5,11 @@ class SearchManager:
     def __init__(self, max_results: int = 3, enable_web: bool = True):
         self.max_results = max_results
         self.sources = {}
+        self._last_results = []
         if enable_web:
-            self.sources['duckduckgo'] = DuckDuckGoSearch(max_results * 2)  # больше результатов для веб-поиска
-    
+            self.sources['duckduckgo'] = DuckDuckGoSearch(max_results * 2)
+
     def search_all(self, query: str, sources: Optional[List[str]] = None) -> List[Dict]:
-        """Поиск по всем источникам."""
         if sources is None:
             sources = list(self.sources.keys())
         all_results = []
@@ -24,12 +24,34 @@ class SearchManager:
                     all_results.extend(items)
                 except Exception as e:
                     print(f"⚠️ Ошибка {name}: {e}")
-        # Сортировка по надёжности (от высокой к низкой)
         all_results.sort(key=lambda x: x.get('reliability', 0), reverse=True)
+        self._last_results = all_results
         return all_results
-    
+
+    def get_last_results(self) -> List[Dict]:
+        """Возвращает результаты последнего поиска."""
+        return self._last_results
+
+    def search_and_summarize(self, query: str, sources: Optional[List[str]] = None) -> str:
+        results = self.search_all(query, sources)
+        if not results:
+            return "Дополнительные источники не найдены."
+        parts = []
+        for i, item in enumerate(results[:6], 1):
+            title = item.get('title', 'Без названия')
+            url = item.get('url', '')
+            verification = item.get('verification', '')
+            abstract = item.get('abstract', '')[:300]
+            parts.append(f"[{i}] {title}")
+            if url:
+                parts.append(f"   URL: {url}")
+            parts.append(f"   Источник: {item.get('source', '')} | {verification}")
+            if abstract:
+                parts.append(f"   Аннотация: {abstract}...")
+            parts.append("")
+        return "\n".join(parts)
+
     def _guess_verification(self, item: Dict) -> str:
-        """Эвристика для определения проверенности источника."""
         source = item.get('source', '').lower()
         if 'arxiv' in source:
             return "📄 Препринт (arXiv)"
@@ -45,21 +67,3 @@ class SearchManager:
             return "🏛️ Государственный источник"
         else:
             return "🌍 Веб-источник (требуется проверка)"
-    
-    def search_and_summarize(self, query: str, sources: Optional[List[str]] = None) -> str:
-        """Поиск и формирование контекста для LLM."""
-        results = self.search_all(query, sources)
-        if not results:
-            return "Дополнительные источники не найдены."
-        parts = []
-        for i, item in enumerate(results[:6], 1):
-            title = item.get('title', 'Без названия')
-            source = item.get('source', '')
-            verification = item.get('verification', '')
-            abstract = item.get('abstract', '')[:300]
-            parts.append(f"[{i}] {title}")
-            parts.append(f"   Источник: {source} | {verification}")
-            if abstract:
-                parts.append(f"   {abstract}...")
-            parts.append("")
-        return "\n".join(parts)
