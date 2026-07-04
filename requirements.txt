@@ -6,6 +6,10 @@ uvicorn>=0.23.0
 pytest>=7.0
 scispacy>=0.5.3
 spacy>=3.7.0
+sentence-transformers>=5.6.0
+faiss-cpu>=1.14.3
+langchain-text-splitters>=1.1.2
+pypdf>=6.14.2
 # Core для веб-интерфейса
 streamlit>=1.28.0
 

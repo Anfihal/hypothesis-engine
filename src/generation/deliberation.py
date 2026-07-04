@@ -29,12 +29,10 @@ class HypothesisDeliberation:
         elif provider == "ollama":
             self.llm = None  # прямой HTTP-запрос
         elif provider == "g4f":
-            try:
-                from src.llm.client import G4FClient
-                # Используем провайдер Bing, чтобы избежать ошибок с har_and_cookies
-                self.llm = G4FClient(model=self.model_name, provider="bing")
-            except ImportError:
-                raise RuntimeError("G4F не установлен. Установите: pip install g4f")
+            from src.llm.client import G4FClient
+            # Используем провайдер Bing, чтобы избежать ошибок с har_and_cookies
+            self.llm = G4FClient(model=self.model_name, provider="bing")
+            
         else:
             raise ValueError(f"Неподдерживаемый провайдер: {provider}")
 
