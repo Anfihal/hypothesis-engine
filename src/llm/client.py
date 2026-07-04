@@ -27,6 +27,11 @@ class YandexGPTClient:
         response.raise_for_status()
         return response.json()["result"]["alternatives"][0]["message"]["text"]
 
+    # === ДОБАВЛЯЕМ МЕТОД invoke ДЛЯ СОВМЕСТИМОСТИ ===
+    def invoke(self, prompt: str) -> str:
+        """Совместимость с интерфейсом других провайдеров (G4F, Ollama)."""
+        return self.generate(prompt)
+
 # === G4F (бесплатные модели) ===
 try:
     from g4f.client import Client
