@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-red)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-демо работа прототипа https://disk.yandex.ru/i/56Lti7c3CjTn-A
+демо работа прототипа https://zelda-coeliac-joshua.ngrok-free.dev   включите перед использованием впн и нажмите визит сайт, работает на данный момент 1 модель, g4f выбирайте , яндекс отключен по независищим от нас причинам, олама чтоб вас не отвлекать от скоростной проверки видео демо работы https://disk.yandex.ru/i/56Lti7c3CjTn-A
 ---
 
 ## 📖 Оглавление
